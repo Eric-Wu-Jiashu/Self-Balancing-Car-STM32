@@ -5,23 +5,21 @@
 #include "tim.h"
 #include "gpio.h"
 
-#define mkp 200
-#define mki 10
-#define DeadZone 200
-
-#define Speed_Filter_Ratio 1
+#define mkp 200 //Popution Modulier for Speed PID ring
+#define mki 10 //Intergreation Mutplier for Speed PID ring
+#define DeadZone 200 //PWM dead zone, PWM set to zero between -DeadZong and DeadZong
 
 
 typedef struct{
-	int Speed;
-	int Prev_Speed;
-	int Target;
-	int Error_Total;
-	int PWM_Out;
+	int Speed; //Total encoder count in 10ms, read from TIM counter registor
+	int Prev_Speed;//previus Speed
+	int Target;//Trget Speed
+	int Error_Total;//Entergreation of Error
+	int PWM_Out;//PWM pulse
 	GPIO_TypeDef* GPIOx;
 	uint16_t GPIO_Positive;
 	uint16_t GPIO_Negative;
-	uint32_t* PWM_Regester;
+	uint32_t* PWM_Regester;//CCR registor for current Motor PWM output
 
 }Motor_PID;
 
