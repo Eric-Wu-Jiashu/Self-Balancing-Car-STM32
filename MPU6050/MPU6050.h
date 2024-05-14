@@ -6,7 +6,7 @@
 #include "i2c.h"
 #include "usart.h"
 
-#define R 2.5
+#define R 2.5 	//Measurement Covariance
 
 void MPU6050_Init();
 

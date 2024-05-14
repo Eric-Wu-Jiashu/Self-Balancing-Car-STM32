@@ -5,10 +5,11 @@
 #define MPU6050 0x68 << 1
 
 #define Who_Am_I 0x75
-#define Power_Manage 0x6b
 
+#define Power_Manage 0x6b
 #define ACC_Config 0x1c
 #define GYRO_Config 0x1b
+
 
 #define ACC_Start 0x3b
 #define GYRO_Start 0x43
@@ -18,6 +19,7 @@
 
 #define ACC_Size 6
 #define Gyro_Size 4
+
 
 #define PI 3.14
 
@@ -46,15 +48,17 @@ uint32_t prev_systick = 0;
 
 
 void MPU6050_Init(){
-
+	//Connection Test continue when getting a correct reading
 	while(Self_Check == 0){
 		HAL_Delay(50);
 		HAL_I2C_Mem_Read(&hi2c1, MPU6050, Who_Am_I, 1, &Self_Check, 1, HAL_MAX_DELAY);
 	}
-	HAL_I2C_Mem_Write(&hi2c1, MPU6050, Power_Manage, 1, (uint8_t*)0x00, 1, HAL_MAX_DELAY);
+	
+	
+	HAL_I2C_Mem_Write(&hi2c1, MPU6050, Power_Manage, 1, (uint8_t*)0x00, 1, HAL_MAX_DELAY);//wake the IMU if needed
 	uint8_t write[3] = {0,0x08,0};
-	HAL_I2C_Mem_Write(&hi2c1, MPU6050, 0x1a, 1, write, 3, HAL_MAX_DELAY);
-	//HAL_I2C_Mem_Read_IT(&hi2c1, MPU6050, ACC_Start, 1, &acc_read, 2);
+	HAL_I2C_Mem_Write(&hi2c1, MPU6050, 0x1a, 1, write, 3, HAL_MAX_DELAY);//Set correct pranmeter for Acceleronmeter and Gyro reading
+	
 	prev_systick = HAL_GetTick();
 
 
@@ -65,9 +69,11 @@ void MPU6050_Get_Data(float *E_Angle, float *Angular_V){
 	HAL_I2C_Mem_Read(&hi2c1, MPU6050, ACC_Start, 1, Acc_Read, ACC_Size, HAL_MAX_DELAY);
 	HAL_I2C_Mem_Read(&hi2c1, MPU6050, GYRO_Start, 1, Gyro_Read, Gyro_Size, HAL_MAX_DELAY);
 
+	//Sampling time duration
 	Delta_Time = (HAL_GetTick() - prev_systick) / 1000.0;
 	prev_systick = HAL_GetTick();
 
+	//Calculate Euler anle from acceleronmemter, Store as the measurment Value for Kalman filter.
 	float total = 0;
 	for (int i = 0; i < (ACC_Size/2); i ++){
 		total += (int16_t)(Acc_Read[2*i] << 8 | Acc_Read[2*i+1]) * (int16_t)(Acc_Read[2*i] << 8 | Acc_Read[2*i+1]);
@@ -76,34 +82,40 @@ void MPU6050_Get_Data(float *E_Angle, float *Angular_V){
 
 	AccAngle = - asin((int16_t)(Acc_Read[4] << 8 | Acc_Read[5])/total) * 180 / PI;
 
+	
+	//State Extrapolation, Intergreat Gyroscope reading for Euler angle
 	GyroZ = (Gyro_Read[0] << 8 | Gyro_Read[1]) - GyroZ_Offset;
 	GyroX = (Gyro_Read[2] << 8 | Gyro_Read[3]) - GyroX_Offset;
-
-
 
 	GyroAngle[0] = Kalman_Angle + (GyroX * Delta_Time) / GYRO_Factor;
 
 
+	//Covariance Extrapolation
 	P[0][0] = P[0][0] + (P[0][1] + P[1][0] + P[1][1] * Delta_Time) * Delta_Time + Q[0][0];
 	P[0][1] = P[0][1] + P[1][1] * Delta_Time;
 	P[1][0] = P[1][0] + P[1][1] * Delta_Time;
 	P[1][1] = P[1][1] + Q[1][1];
 
+	//	Kalman Gain
 	Kalman_Gain[0] = P[0][0] / (P[0][0] + R);
 	Kalman_Gain[1] = P[1][0] / (P[0][0] + R);
 
 	Angular_Velocity_X = Kalman_Angle;
 
+	//State update
 	Kalman_Angle = GyroAngle[0] + Kalman_Gain[0] * (AccAngle - GyroAngle[0]);
 
-	Angular_Velocity_X = Kalman_Angle - Angular_Velocity_X;
+	Angular_Velocity_X = Kalman_Angle - Angular_Velocity_X;//Find drivative of Kalman_Angle for PID Controller
 
+	
+	//Covariance Update
 	float P_New[2][2];
 	P_New[0][0] = P[0][0]*(1-Kalman_Gain[0]) * (1-Kalman_Gain[0]) + R * Kalman_Gain[0] * Kalman_Gain[0];
 	P_New[0][1] = (P[0][1] - Kalman_Gain[1] * P[0][0]) * (1 - Kalman_Gain[0]) + R * Kalman_Gain[0] * Kalman_Gain[1];
 	P_New[1][0] = (P[1][0] - P[0][0] * Kalman_Gain[1]) * (1 - Kalman_Gain[0]) + R * Kalman_Gain[0] * Kalman_Gain[1];
 	P_New[1][1] = - Kalman_Gain[1] * (P[1][0] - P[0][0] * Kalman_Gain[1]) - P[0][1] * Kalman_Gain[1] + P[1][1] + R * Kalman_Gain[1] * Kalman_Gain[1];
 
+	//Store the new Covariance
 	P[0][0] = P_New[0][0];
 	P[0][1] = P_New[0][1];
 	P[1][0] = P_New[1][0];
